@@ -15,10 +15,11 @@ video{width:100%;max-height:300px;background:#000;border-radius:8px;object-fit:c
 .it{display:flex;gap:8px;align-items:center;border-top:1px solid #e6edf1;padding:7px 0;font-size:13px}.it>div{flex:1}.it s{color:#8a98a1}
 table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-top:1px solid #e6edf1;padding:5px;text-align:left}
 </style></head><body>
-<header><b>Asistencia con QR <small style="font-weight:400;opacity:.7">v3</small></b><span id="who"></span><button class="sec" id="out" hidden>Salir</button></header>
+<header><b>Asistencia con QR <small style="font-weight:400;opacity:.7">v4</small></b><span id="who"></span><button class="sec" id="out" hidden>Salir</button></header>
 
 <section id="vLogin" class="narrow"><div class="card"><h2>Ingreso</h2>
  <label>Usuario</label><input id="lu" autocomplete="username"><label>Contraseña</label><input id="lp" type="password" autocomplete="current-password">
+ <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="lshow" style="width:auto"> Mostrar contraseña</label>
  <button id="lgo" style="width:100%;margin-top:12px">Entrar</button><p id="lerr" class="small err"></p></div></section>
 
 <main id="vApp" hidden><nav id="tabs"></nav>
@@ -26,7 +27,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-top:1px so
   <div class="card"><h2>Tomar asistencia</h2>
    <label>Evento</label><select id="evSel"></select><div id="evInfo" class="small"></div>
    <div style="margin:10px 0"><video id="cam" playsinline muted></video><canvas id="cv" hidden></canvas></div>
-   <div id="st" class="small"></div>
+   <div id="st" class="small"></div><div id="pInfo" class="small"></div>
    <div class="row"><button id="camBtn">Activar cámara</button></div>
    <label>Documento manual o lector de códigos</label>
    <div class="row"><input id="man" inputmode="numeric" placeholder="Escriba o escanee y pulse Enter"><button id="manBtn" style="flex:0 0 auto">Registrar</button></div>
@@ -45,7 +46,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-top:1px so
   <div class="card"><h2>Crear o actualizar usuario</h2>
    <div class="row"><div><label>Usuario</label><input id="uu"></div><div><label>Nombre</label><input id="un"></div></div>
    <div class="row"><div><label>Contraseña (mín. 6)</label><input id="up" type="text"></div><div><label>Rol</label><select id="ur"><option value="registrador">Registrador</option><option value="admin">Administrador</option></select></div><div><label>Activo</label><select id="ua"><option>Sí</option><option>No</option></select></div></div>
-   <button id="usv" style="margin-top:10px">Guardar usuario</button> <span id="uerr" class="small err"></span></div>
+   <button class="sec" id="ugen" style="margin-top:10px">Generar contraseña</button> <button id="usv" style="margin-top:10px">Guardar usuario</button> <span id="uerr" class="small err"></span></div>
   <div class="card"><h2>Usuarios</h2><div id="usList"></div></div>
  </section>
  <section id="p_res" hidden><div class="card"><h2>Resumen de asistencias por jornada</h2>
@@ -57,18 +58,19 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-top:1px so
 <script>
 const API='https://script.google.com/macros/s/AKfycbwWlfxYJEOea4u-C2CeH1DRZ9j9AebDOcteCB4HGv5WCZbC1zToUCVkw_W2x9NM-U5H/exec';
 const $=s=>document.querySelector(s),esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let T=sessionStorage.getItem('t'),ME=JSON.parse(sessionStorage.getItem('me')||'null'),EV=[],stream=null,last='',lastT=0,busy=false,tab='scan';
+let T=sessionStorage.getItem('t'),ME=JSON.parse(sessionStorage.getItem('me')||'null'),EV=[],stream=null,last='',lastT=0,busy=false,tab='scan',Q=[],pumping=false,HECHOS=new Set(),PE=new Map();
 async function api(a,d={}){const r=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({a,t:T,...d})});
- const j=await r.json();if(!j.ok){if(j.error==='SESION'){salir();throw new Error('La sesión venció. Ingrese de nuevo.')}throw new Error(j.error)}return j.d}
-function salir(){stopCam();sessionStorage.clear();T=ME=null;show()}
+ const j=await r.json();if(!j.ok){if(j.error==='SESION'){salir();const e0=new Error('La sesión venció. Ingrese de nuevo.');e0.srv=1;throw e0}const er=new Error(j.error);er.srv=1;throw er}return j.d}
+function salir(){Q=[];PE=new Map();HECHOS=new Set();stopCam();sessionStorage.clear();T=ME=null;show()}
 function show(){const on=!!T;$('#vLogin').hidden=on;$('#vApp').hidden=!on;$('#out').hidden=!on;$('#who').textContent=on?ME.n+(ME.r==='admin'?' (admin)':''):'';
  if(on){const adm=ME.r==='admin';$('#tabs').innerHTML=[['scan','Escanear'],['ev','Eventos',1],['us','Usuarios',1],['res','Resumen',1]].filter(t=>!t[2]||adm)
   .map(t=>`<button class="${t[0]===tab?'':'sec'}" data-t="${t[0]}">${t[1]}</button>`).join('');
   document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;if(tab!=='scan')stopCam();show()});
   ['scan','ev','us','res'].forEach(t=>$('#p_'+t).hidden=t!==tab);load()}}
-async function load(){try{if(tab==='scan'||tab==='ev'){EV=await api('eventos');pintaEv()}if(tab==='us')pintaUs(await api('usuarios'))}catch(e){alert(e.message)}}
-$('#lgo').onclick=async()=>{$('#lerr').textContent='';try{const r=await api('login',{u:$('#lu').value,p:$('#lp').value});T=r.t;ME=r;sessionStorage.setItem('t',T);sessionStorage.setItem('me',JSON.stringify(r));$('#lp').value='';tab='scan';show()}catch(e){$('#lerr').textContent=e.message}};
-$('#lp').onkeydown=e=>{if(e.key==='Enter')$('#lgo').click()};$('#out').onclick=salir;
+async function load(){try{if(tab==='scan'||tab==='ev'){EV=await api('eventos');pintaEv()}if(tab==='scan'&&!PE.size)cargaPe();if(tab==='us')pintaUs(await api('usuarios'))}catch(e){alert(e.message)}}
+$('#lgo').onclick=async()=>{$('#lerr').textContent='';try{const r=await api('login',{u:$('#lu').value,p:$('#lp').value});T=r.t;ME=r;sessionStorage.setItem('t',T);sessionStorage.setItem('me',JSON.stringify(r));try{localStorage.setItem('lu',$('#lu').value.trim())}catch(e2){}$('#lp').value='';tab='scan';show()}catch(e){$('#lerr').textContent=e.message}};
+$('#lp').onkeydown=e=>{if(e.key==='Enter')$('#lgo').click()};try{$('#lu').value=localStorage.getItem('lu')||''}catch(e){}
+$('#lshow').onchange=e=>{$('#lp').type=e.target.checked?'text':'password'};$('#out').onclick=salir;
 
 function pintaEv(){const cur=$('#evSel').value;
  $('#evSel').innerHTML=EV.map(e=>`<option value="${e.id}">${esc(e.n)} — ${e.est}</option>`).join('')||'<option value="">No hay eventos disponibles</option>';
@@ -76,48 +78,72 @@ function pintaEv(){const cur=$('#evSel').value;
  $('#evList').innerHTML=EV.map(e=>`<div class="it"><div><b>${esc(e.n)}</b> <span class="small">· ${esc(e.j)}</span><br><span class="small">${e.ini} → ${e.fin} · ${e.est} · ${e.c} asistentes${e.reg?' · '+esc(e.reg):''}</span></div><button class="sec" data-a="${e.id}">Archivar</button></div>`).join('')||'<p class="small">Sin eventos.</p>';
  document.querySelectorAll('[data-a]').forEach(b=>b.onclick=async()=>{if(!confirm('¿Archivar este evento? Dejará de tomar asistencia y no se borra nada.'))return;try{await api('archivar',{id:b.dataset.a});load()}catch(e){alert(e.message)}})}
 function evSel(){return EV.find(e=>e.id===$('#evSel').value)}
-function infoEv(){const e=evSel();$('#evInfo').textContent=e?`${e.ini} → ${e.fin} · ${e.est}`:'';lista()}
+function infoEv(){HECHOS=new Set();const e=evSel();$('#evInfo').textContent=e?`${e.ini} → ${e.fin} · ${e.est}`:'';lista()}
 $('#evSel').onchange=infoEv;
 async function lista(){const e=evSel();if(!e){$('#lista').innerHTML='';$('#cnt').textContent='';return}
- try{const a=await api('asistentes',{ev:e.id}),v=a.filter(x=>x.e==='Válida').length;$('#cnt').textContent=`(${v})`;
+ try{const a=await api('asistentes',{ev:e.id}),v=a.filter(x=>x.e==='Válida').length;$('#cnt').textContent=`(${v})`;HECHOS=new Set(a.filter(x=>x.e==='Válida').map(x=>String(x.doc)));Q.forEach(i=>{if(i.ev===e.id)HECHOS.add(i.doc)});
   $('#lista').innerHTML=a.map(x=>`<div class="it"><div>${x.e==='Válida'?esc(x.n):'<s>'+esc(x.n)+'</s>'}<br><span class="small">${esc(x.doc)} · ${x.h} · ${esc(x.por)} · ${esc(x.m)}${x.e!=='Válida'?' · ANULADA: '+esc(x.mo):''}</span></div>${ME.r==='admin'&&x.e==='Válida'?`<button class="red" data-n="${x.id}">Anular</button>`:''}</div>`).join('')||'<p class="small">Aún no hay asistentes.</p>';
   document.querySelectorAll('[data-n]').forEach(b=>b.onclick=async()=>{const m=prompt('Motivo de la anulación:');if(!m)return;try{await api('anular',{id:b.dataset.n,motivo:m});lista()}catch(er){alert(er.message)}})}catch(er){}}
 
-function beep(f){try{const c=new(window.AudioContext||window.webkitAudioContext)(),o=c.createOscillator();o.frequency.value=f;o.connect(c.destination);o.start();o.stop(c.currentTime+.15)}catch(e){}}
+let AC;function audio(){try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume()}catch(e){}}
+function beep(f){try{audio();const o=AC.createOscillator();o.frequency.value=f;o.connect(AC.destination);o.start();o.stop(AC.currentTime+.15)}catch(e){}}
 let resT;function res(t,c,f){const r=$('#res');r.hidden=false;r.className=c;r.innerHTML=t;beep(f);if(navigator.vibrate)navigator.vibrate(c==='ok'?80:[80,60,80]);clearTimeout(resT);resT=setTimeout(()=>{r.hidden=true},3500)}
-async function registrar(doc,m){const e=evSel();if(!e){res('Seleccione un evento.','bad',200);return}if(busy)return;busy=true;
+async function registrarSrv(doc,m){const e=evSel();if(!e){res('Seleccione un evento.','bad',200);return}if(busy)return;busy=true;
  try{const r=await api('escanear',{ev:e.id,doc,m});
   if(r.dup)res(`Ya registrado<br>${esc(r.n)}<br><span class="small">a las ${r.hora} por ${esc(r.por)}</span>`,'dup',330);
   else{res(`✔ REGISTRADO<br>${esc(r.n)}<br><span style="font-size:13px;font-weight:400">${esc(r.r)}</span>`,'ok',880);lista()}}
  catch(er){res(esc(er.message),'bad',200)}finally{busy=false}}
+const sm='style="font-size:13px;font-weight:400"';
+async function cargaPe(){try{const p=await api('personas');PE=new Map(p.map(x=>[x[0],[x[1],x[2]]]));pend()}catch(e){}}
+function pend(){$('#pInfo').textContent=(PE.size?'Personas cargadas: '+PE.size:'Cargando lista de personas…')+(Q.length?' · Pendientes de enviar: '+Q.length:'')}
+// Registro instantáneo: valida y muestra el nombre en el teléfono; el envío al servidor va en segundo plano.
+function registrar(doc,m){const e=evSel();if(!e){res('Seleccione un evento.','bad',200);return}
+ doc=String(doc).replace(/[.,\s]/g,'');if(!doc)return;
+ if(!PE.size){registrarSrv(doc,m);return}
+ if(e.est==='Cerrado'){res('El evento ya terminó: no se admite más asistencia.','bad',200);return}
+ const p=PE.get(doc);
+ if(!p){res(`✖ ${esc(doc)}<br><span ${sm}>no está en la lista de personas</span>`,'bad',200);return}
+ if(HECHOS.has(doc)){res(`Ya registrado<br>${esc(p[0])}`,'dup',330);return}
+ HECHOS.add(doc);Q.push({ev:e.id,doc,m,n:p[0]});
+ res(`✔ REGISTRADO<br>${esc(p[0])}<br><span ${sm}>${esc(p[1])}</span>`,'ok',880);pend();pump()}
+async function pump(){if(pumping)return;pumping=true;
+ while(Q.length){const it=Q[0];
+  try{const r=await api('escanear',{ev:it.ev,doc:it.doc,m:it.m});Q.shift();pend();
+   if(r.dup)res(`Ya estaba registrado<br>${esc(r.n)}<br><span ${sm}>a las ${r.hora} por ${esc(r.por)}</span>`,'dup',330)}
+  catch(e){if(e.srv){Q.shift();HECHOS.delete(it.doc);pend();res(`✖ NO se registró<br>${esc(it.n)}<br><span ${sm}>${esc(e.message)}</span>`,'bad',200)}
+   else{pend();$('#pInfo').textContent+=' · sin conexión, reintentando…';await sleep(3000)}}}
+ pumping=false;lista()}
 $('#manBtn').onclick=()=>{const v=$('#man').value.trim();if(v){registrar(v,'manual');$('#man').value=''}};$('#man').onkeydown=e=>{if(e.key==='Enter')$('#manBtn').click()};
 
-const st=t=>{$('#st').textContent=t};let det=null,lastScan=0;
+const st=t=>{$('#st').textContent=t},sleep=ms=>new Promise(r=>setTimeout(r,ms));let det=null,fr=0,lastSt=0,lastRead='',inTick=false;
 if('BarcodeDetector' in window){try{det=new BarcodeDetector({formats:['qr_code']})}catch(e){det=null}}
-async function startCam(){
+function nextFrame(){const v=$('#cam');if(!stream)return;if(v.requestVideoFrameCallback)v.requestVideoFrameCallback(tick);else requestAnimationFrame(tick)}
+async function startCam(){audio();
  if(!det&&typeof jsQR==='undefined'){res('No cargó el lector de QR. Revise la conexión a internet y recargue la página.','bad',200);st('Lector de QR no disponible.');return}
  try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});
-  const v=$('#cam');v.srcObject=stream;await v.play();$('#camBtn').textContent='Apagar cámara';
-  st('Buscando QR… ('+(det?'lector nativo':'lector jsQR')+', video '+v.videoWidth+'×'+v.videoHeight+')');tick()}
+  try{const tr=stream.getVideoTracks()[0],cap=tr.getCapabilities?tr.getCapabilities():{};if(cap.focusMode&&cap.focusMode.includes('continuous'))await tr.applyConstraints({advanced:[{focusMode:'continuous'}]})}catch(e){}
+  const v=$('#cam');v.srcObject=stream;await v.play();$('#camBtn').textContent='Apagar cámara';fr=0;lastRead='';
+  st('Buscando QR… ('+(det?'lector nativo':'lector jsQR')+', video '+v.videoWidth+'×'+v.videoHeight+')');nextFrame()}
  catch(e){res('No se pudo abrir la cámara. Revise el permiso del navegador o use el ingreso manual.','bad',200)}}
 function stopCam(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}$('#cam').srcObject=null;$('#camBtn').textContent='Activar cámara';st('')}
 $('#camBtn').onclick=()=>stream?stopCam():startCam();
-let fr=0,lastSt=0,lastRead='';
-async function tick(){if(!stream)return;const v=$('#cam'),n=Date.now();
- if(v.readyState>=2&&v.videoWidth&&n-lastScan>150){lastScan=n;fr++;
-  try{let txt=null;
+async function tick(){if(!stream)return;if(inTick){nextFrame();return}inTick=true;
+ const v=$('#cam'),n=Date.now();
+ try{if(v.readyState>=2&&v.videoWidth){fr++;let txt=null;
    if(det){const r=await det.detect(v);if(r.length)txt=r[0].rawValue}
-   if(!txt&&typeof jsQR!=='undefined'){const c=$('#cv'),k=Math.min(1,960/v.videoWidth);c.width=Math.round(v.videoWidth*k);c.height=Math.round(v.videoHeight*k);
+   if(!txt&&(!det||fr%3===0)&&typeof jsQR!=='undefined'){const c=$('#cv'),k=Math.min(1,640/v.videoWidth);c.width=Math.round(v.videoWidth*k);c.height=Math.round(v.videoHeight*k);
     const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(v,0,0,c.width,c.height);
     const q=jsQR(x.getImageData(0,0,c.width,c.height).data,c.width,c.height,{inversionAttempts:'dontInvert'});if(q)txt=q.data}
-   if(txt){lastRead=txt;const t=Date.now();if(txt!==last||t-lastT>4000){last=txt;lastT=t;registrar(txt,'cámara')}}}
-  catch(e){st('Error del lector: '+e.message)}
-  if(n-lastSt>1000){lastSt=n;st('Lector: '+(det?'nativo + jsQR':'jsQR')+' · cuadros analizados: '+fr+' · último QR leído: '+(lastRead||'ninguno'))}}
- requestAnimationFrame(tick)}
+   if(txt){lastRead=txt;if(txt!==last||n-lastT>4000){last=txt;lastT=n;registrar(txt,'cámara')}}
+   if(n-lastSt>1000){lastSt=n;st('Lector: '+(det?'nativo + jsQR':'jsQR')+' · cuadros analizados: '+fr+' · último QR leído: '+(lastRead||'ninguno'))}}}
+ catch(e){st('Error del lector: '+e.message)}
+ inTick=false;nextFrame()}
 
 $('#ecr').onclick=async()=>{$('#eerr').textContent='';try{await api('crearEvento',{n:$('#en').value.trim(),j:$('#ej').value.trim(),ini:$('#ei').value,fin:$('#ef').value,reg:$('#er').value.trim()});['en','ej','ei','ef','er'].forEach(i=>$('#'+i).value='');load()}catch(e){$('#eerr').textContent=e.message}};
 function pintaUs(u){$('#usList').innerHTML=u.map(x=>`<div class="it"><div><b>${esc(x.u)}</b> · ${esc(x.n)}<br><span class="small">${x.r==='admin'?'Administrador':'Registrador'} · ${x.a==='Sí'?'activo':'inactivo'}</span></div></div>`).join('')}
 $('#usv').onclick=async()=>{$('#uerr').textContent='';try{await api('guardarUsuario',{u:$('#uu').value,n:$('#un').value,p:$('#up').value,rol:$('#ur').value,act:$('#ua').value});['uu','un','up'].forEach(i=>$('#'+i).value='');load()}catch(e){$('#uerr').textContent=e.message}};
 $('#rgo').onclick=async()=>{try{const r=await api('resumen');$('#rTab').innerHTML=r.length?'<table><tr><th>Jornada</th><th>Documento</th><th>Nombre</th><th>Asist.</th><th>%</th></tr>'+r.map(x=>`<tr><td>${esc(x.j)}</td><td>${esc(x.d)}</td><td>${esc(x.n)}</td><td>${x.c}/${x.t}</td><td>${x.p}%</td></tr>`).join('')+'</table>':'<p class="small">Aún no hay asistencias.</p>'}catch(e){alert(e.message)}};
+$('#ugen').onclick=()=>{const a='abcdefghjkmnpqrstuvwxyzACDEFGHJKLMNPQRTUVWXYZ2346789';let s='';crypto.getRandomValues(new Uint32Array(8)).forEach(x=>s+=a[x%a.length]);$('#up').value=s};
+setInterval(()=>{if(T&&tab==='scan'&&!document.hidden)api('eventos').then(x=>{EV=x;pintaEv()}).catch(()=>{})},60000);
 show();
 </script></body></html>
