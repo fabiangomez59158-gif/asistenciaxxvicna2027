@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Asistencia con QR</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,Arial,sans-serif;background:#f3f6f8;color:#1b2a33}
+header{background:#0b5d7a;color:#fff;padding:12px 16px;display:flex;gap:10px;align-items:center}header b{flex:1;font-size:17px}header span{font-size:13px;opacity:.9}
+main,.narrow{max-width:760px;margin:auto;padding:14px}[hidden]{display:none!important}
+nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}nav button{flex:1}
+.card{background:#fff;border:1px solid #d9e2e8;border-radius:10px;padding:14px;margin-bottom:12px}.card h2{margin:0 0 8px;font-size:15px;color:#0b5d7a}
+label{display:block;font-size:13px;margin:8px 0 3px}input,select{width:100%;padding:8px;border:1px solid #bcc8d0;border-radius:6px;font:inherit}
+button{background:#0b5d7a;color:#fff;border:0;border-radius:7px;padding:9px 14px;cursor:pointer;font:inherit}button.sec{background:#e3ecf0;color:#0b5d7a}button.red{background:#b3261e}button:disabled{opacity:.5}
+.row{display:flex;gap:8px;align-items:end}.row>*{flex:1}.small{font-size:12px;color:#5b6c76}.err{color:#b3261e}
+video{width:100%;max-height:300px;background:#000;border-radius:8px;object-fit:cover}
+#res{padding:12px;border-radius:8px;margin-top:10px;font-weight:600}.ok{background:#dff3e6;color:#17613a}.dup{background:#fff1cc;color:#7a5200}.bad{background:#fbe0de;color:#8c1d18}
+.it{display:flex;gap:8px;align-items:center;border-top:1px solid #e6edf1;padding:7px 0;font-size:13px}.it>div{flex:1}.it s{color:#8a98a1}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-top:1px solid #e6edf1;padding:5px;text-align:left}
+</style></head><body>
+<header><b>Asistencia con QR</b><span id="who"></span><button class="sec" id="out" hidden>Salir</button></header>
+
+<section id="vLogin" class="narrow"><div class="card"><h2>Ingreso</h2>
+ <label>Usuario</label><input id="lu" autocomplete="username"><label>Contraseña</label><input id="lp" type="password" autocomplete="current-password">
+ <button id="lgo" style="width:100%;margin-top:12px">Entrar</button><p id="lerr" class="small err"></p></div></section>
+
+<main id="vApp" hidden><nav id="tabs"></nav>
+ <section id="p_scan">
+  <div class="card"><h2>Tomar asistencia</h2>
+   <label>Evento</label><select id="evSel"></select><div id="evInfo" class="small"></div>
+   <div style="margin:10px 0"><video id="cam" playsinline muted></video><canvas id="cv" hidden></canvas></div>
+   <div class="row"><button id="camBtn">Activar cámara</button></div>
+   <label>Documento manual o lector de códigos</label>
+   <div class="row"><input id="man" inputmode="numeric" placeholder="Escriba o escanee y pulse Enter"><button id="manBtn" style="flex:0 0 auto">Registrar</button></div>
+   <div id="res" hidden></div></div>
+  <div class="card"><h2>Asistentes del evento <span id="cnt" class="small"></span></h2><div id="lista"></div></div>
+ </section>
+ <section id="p_ev" hidden>
+  <div class="card"><h2>Nuevo evento</h2>
+   <label>Nombre</label><input id="en"><label>Jornada (agrupa varios eventos; vacío = igual al nombre)</label><input id="ej">
+   <div class="row"><div><label>Inicio</label><input id="ei" type="datetime-local"></div><div><label>Fin</label><input id="ef" type="datetime-local"></div></div>
+   <label>Registradores permitidos (usuarios separados por coma; vacío = todos)</label><input id="er">
+   <button id="ecr" style="margin-top:10px">Crear evento</button> <span id="eerr" class="small err"></span></div>
+  <div class="card"><h2>Eventos activos</h2><div id="evList"></div></div>
+ </section>
+ <section id="p_us" hidden>
+  <div class="card"><h2>Crear o actualizar usuario</h2>
+   <div class="row"><div><label>Usuario</label><input id="uu"></div><div><label>Nombre</label><input id="un"></div></div>
+   <div class="row"><div><label>Contraseña (mín. 6)</label><input id="up" type="text"></div><div><label>Rol</label><select id="ur"><option value="registrador">Registrador</option><option value="admin">Administrador</option></select></div><div><label>Activo</label><select id="ua"><option>Sí</option><option>No</option></select></div></div>
+   <button id="usv" style="margin-top:10px">Guardar usuario</button> <span id="uerr" class="small err"></span></div>
+  <div class="card"><h2>Usuarios</h2><div id="usList"></div></div>
+ </section>
+ <section id="p_res" hidden><div class="card"><h2>Resumen de asistencias por jornada</h2>
+  <p class="small">También se escribe en la hoja «Resumen» del archivo, que leerá el generador de certificados.</p>
+  <button id="rgo">Calcular resumen</button><div id="rTab" style="margin-top:10px;overflow-x:auto"></div></div></section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script>
+const API='https://script.google.com/macros/s/AKfycbwWlfxYJEOea4u-C2CeH1DRZ9j9AebDOcteCB4HGv5WCZbC1zToUCVkw_W2x9NM-U5H/exec';
+const $=s=>document.querySelector(s),esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let T=sessionStorage.getItem('t'),ME=JSON.parse(sessionStorage.getItem('me')||'null'),EV=[],stream=null,last='',lastT=0,busy=false,tab='scan';
+async function api(a,d={}){const r=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({a,t:T,...d})});
+ const j=await r.json();if(!j.ok){if(j.error==='SESION'){salir();throw new Error('La sesión venció. Ingrese de nuevo.')}throw new Error(j.error)}return j.d}
+function salir(){stopCam();sessionStorage.clear();T=ME=null;show()}
+function show(){const on=!!T;$('#vLogin').hidden=on;$('#vApp').hidden=!on;$('#out').hidden=!on;$('#who').textContent=on?ME.n+(ME.r==='admin'?' (admin)':''):'';
+ if(on){const adm=ME.r==='admin';$('#tabs').innerHTML=[['scan','Escanear'],['ev','Eventos',1],['us','Usuarios',1],['res','Resumen',1]].filter(t=>!t[2]||adm)
+  .map(t=>`<button class="${t[0]===tab?'':'sec'}" data-t="${t[0]}">${t[1]}</button>`).join('');
+  document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.t;if(tab!=='scan')stopCam();show()});
+  ['scan','ev','us','res'].forEach(t=>$('#p_'+t).hidden=t!==tab);load()}}
+async function load(){try{if(tab==='scan'||tab==='ev'){EV=await api('eventos');pintaEv()}if(tab==='us')pintaUs(await api('usuarios'))}catch(e){alert(e.message)}}
+$('#lgo').onclick=async()=>{$('#lerr').textContent='';try{const r=await api('login',{u:$('#lu').value,p:$('#lp').value});T=r.t;ME=r;sessionStorage.setItem('t',T);sessionStorage.setItem('me',JSON.stringify(r));$('#lp').value='';tab='scan';show()}catch(e){$('#lerr').textContent=e.message}};
+$('#lp').onkeydown=e=>{if(e.key==='Enter')$('#lgo').click()};$('#out').onclick=salir;
+
+function pintaEv(){const cur=$('#evSel').value;
+ $('#evSel').innerHTML=EV.map(e=>`<option value="${e.id}">${esc(e.n)} — ${e.est}</option>`).join('')||'<option value="">No hay eventos disponibles</option>';
+ if(EV.some(e=>e.id===cur))$('#evSel').value=cur;infoEv();
+ $('#evList').innerHTML=EV.map(e=>`<div class="it"><div><b>${esc(e.n)}</b> <span class="small">· ${esc(e.j)}</span><br><span class="small">${e.ini} → ${e.fin} · ${e.est} · ${e.c} asistentes${e.reg?' · '+esc(e.reg):''}</span></div><button class="sec" data-a="${e.id}">Archivar</button></div>`).join('')||'<p class="small">Sin eventos.</p>';
+ document.querySelectorAll('[data-a]').forEach(b=>b.onclick=async()=>{if(!confirm('¿Archivar este evento? Dejará de tomar asistencia y no se borra nada.'))return;try{await api('archivar',{id:b.dataset.a});load()}catch(e){alert(e.message)}})}
+function evSel(){return EV.find(e=>e.id===$('#evSel').value)}
+function infoEv(){const e=evSel();$('#evInfo').textContent=e?`${e.ini} → ${e.fin} · ${e.est}`:'';lista()}
+$('#evSel').onchange=infoEv;
+async function lista(){const e=evSel();if(!e){$('#lista').innerHTML='';$('#cnt').textContent='';return}
+ try{const a=await api('asistentes',{ev:e.id}),v=a.filter(x=>x.e==='Válida').length;$('#cnt').textContent=`(${v})`;
+  $('#lista').innerHTML=a.map(x=>`<div class="it"><div>${x.e==='Válida'?esc(x.n):'<s>'+esc(x.n)+'</s>'}<br><span class="small">${esc(x.doc)} · ${x.h} · ${esc(x.por)} · ${esc(x.m)}${x.e!=='Válida'?' · ANULADA: '+esc(x.mo):''}</span></div>${ME.r==='admin'&&x.e==='Válida'?`<button class="red" data-n="${x.id}">Anular</button>`:''}</div>`).join('')||'<p class="small">Aún no hay asistentes.</p>';
+  document.querySelectorAll('[data-n]').forEach(b=>b.onclick=async()=>{const m=prompt('Motivo de la anulación:');if(!m)return;try{await api('anular',{id:b.dataset.n,motivo:m});lista()}catch(er){alert(er.message)}})}catch(er){}}
+
+function beep(f){try{const c=new(window.AudioContext||window.webkitAudioContext)(),o=c.createOscillator();o.frequency.value=f;o.connect(c.destination);o.start();o.stop(c.currentTime+.15)}catch(e){}}
+function res(t,c,f){const r=$('#res');r.hidden=false;r.className=c;r.innerHTML=t;beep(f);if(navigator.vibrate)navigator.vibrate(c==='ok'?80:[80,60,80])}
+async function registrar(doc,m){const e=evSel();if(!e){res('Seleccione un evento.','bad',200);return}if(busy)return;busy=true;
+ try{const r=await api('escanear',{ev:e.id,doc,m});
+  if(r.dup)res(`Ya registrado<br>${esc(r.n)}<br><span class="small">a las ${r.hora} por ${esc(r.por)}</span>`,'dup',330);
+  else{res(`✔ ${esc(r.n)}<br><span class="small">${esc(r.r)}</span>`,'ok',880);lista()}}
+ catch(er){res(esc(er.message),'bad',200)}finally{busy=false}}
+$('#manBtn').onclick=()=>{const v=$('#man').value.trim();if(v){registrar(v,'manual');$('#man').value=''}};$('#man').onkeydown=e=>{if(e.key==='Enter')$('#manBtn').click()};
+
+async function startCam(){try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});const v=$('#cam');v.srcObject=stream;await v.play();$('#camBtn').textContent='Apagar cámara';tick()}
+ catch(e){res('No se pudo abrir la cámara. Revise el permiso del navegador o use el ingreso manual.','bad',200)}}
+function stopCam(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}$('#cam').srcObject=null;$('#camBtn').textContent='Activar cámara'}
+$('#camBtn').onclick=()=>stream?stopCam():startCam();
+function tick(){if(!stream)return;const v=$('#cam'),c=$('#cv');
+ if(v.readyState>=2&&v.videoWidth){const k=Math.min(1,640/v.videoWidth);c.width=v.videoWidth*k;c.height=v.videoHeight*k;const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(v,0,0,c.width,c.height);
+  const q=jsQR(x.getImageData(0,0,c.width,c.height).data,c.width,c.height);
+  if(q&&q.data){const n=Date.now();if(q.data!==last||n-lastT>4000){last=q.data;lastT=n;registrar(q.data,'cámara')}}}
+ requestAnimationFrame(tick)}
+
+$('#ecr').onclick=async()=>{$('#eerr').textContent='';try{await api('crearEvento',{n:$('#en').value.trim(),j:$('#ej').value.trim(),ini:$('#ei').value,fin:$('#ef').value,reg:$('#er').value.trim()});['en','ej','ei','ef','er'].forEach(i=>$('#'+i).value='');load()}catch(e){$('#eerr').textContent=e.message}};
+function pintaUs(u){$('#usList').innerHTML=u.map(x=>`<div class="it"><div><b>${esc(x.u)}</b> · ${esc(x.n)}<br><span class="small">${x.r==='admin'?'Administrador':'Registrador'} · ${x.a==='Sí'?'activo':'inactivo'}</span></div></div>`).join('')}
+$('#usv').onclick=async()=>{$('#uerr').textContent='';try{await api('guardarUsuario',{u:$('#uu').value,n:$('#un').value,p:$('#up').value,rol:$('#ur').value,act:$('#ua').value});['uu','un','up'].forEach(i=>$('#'+i).value='');load()}catch(e){$('#uerr').textContent=e.message}};
+$('#rgo').onclick=async()=>{try{const r=await api('resumen');$('#rTab').innerHTML=r.length?'<table><tr><th>Jornada</th><th>Documento</th><th>Nombre</th><th>Asist.</th><th>%</th></tr>'+r.map(x=>`<tr><td>${esc(x.j)}</td><td>${esc(x.d)}</td><td>${esc(x.n)}</td><td>${x.c}/${x.t}</td><td>${x.p}%</td></tr>`).join('')+'</table>':'<p class="small">Aún no hay asistencias.</p>'}catch(e){alert(e.message)}};
+show();
+</script></body></html>
