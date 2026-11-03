@@ -11,11 +11,11 @@ label{display:block;font-size:13px;margin:8px 0 3px}input,select{width:100%;padd
 button{background:#0b5d7a;color:#fff;border:0;border-radius:7px;padding:9px 14px;cursor:pointer;font:inherit}button.sec{background:#e3ecf0;color:#0b5d7a}button.red{background:#b3261e}button:disabled{opacity:.5}
 .row{display:flex;gap:8px;align-items:end}.row>*{flex:1}.small{font-size:12px;color:#5b6c76}.err{color:#b3261e}
 video{width:100%;max-height:300px;background:#000;border-radius:8px;object-fit:cover}
-#res{padding:12px;border-radius:8px;margin-top:10px;font-weight:600}.ok{background:#dff3e6;color:#17613a}.dup{background:#fff1cc;color:#7a5200}.bad{background:#fbe0de;color:#8c1d18}
+#res{position:fixed;left:10px;right:10px;top:10px;z-index:50;padding:16px;border-radius:12px;font-weight:700;font-size:19px;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.25)}.ok{background:#dff3e6;color:#17613a}.dup{background:#fff1cc;color:#7a5200}.bad{background:#fbe0de;color:#8c1d18}
 .it{display:flex;gap:8px;align-items:center;border-top:1px solid #e6edf1;padding:7px 0;font-size:13px}.it>div{flex:1}.it s{color:#8a98a1}
 table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-top:1px solid #e6edf1;padding:5px;text-align:left}
 </style></head><body>
-<header><b>Asistencia con QR</b><span id="who"></span><button class="sec" id="out" hidden>Salir</button></header>
+<header><b>Asistencia con QR <small style="font-weight:400;opacity:.7">v3</small></b><span id="who"></span><button class="sec" id="out" hidden>Salir</button></header>
 
 <section id="vLogin" class="narrow"><div class="card"><h2>Ingreso</h2>
  <label>Usuario</label><input id="lu" autocomplete="username"><label>Contraseña</label><input id="lp" type="password" autocomplete="current-password">
@@ -84,11 +84,11 @@ async function lista(){const e=evSel();if(!e){$('#lista').innerHTML='';$('#cnt')
   document.querySelectorAll('[data-n]').forEach(b=>b.onclick=async()=>{const m=prompt('Motivo de la anulación:');if(!m)return;try{await api('anular',{id:b.dataset.n,motivo:m});lista()}catch(er){alert(er.message)}})}catch(er){}}
 
 function beep(f){try{const c=new(window.AudioContext||window.webkitAudioContext)(),o=c.createOscillator();o.frequency.value=f;o.connect(c.destination);o.start();o.stop(c.currentTime+.15)}catch(e){}}
-function res(t,c,f){const r=$('#res');r.hidden=false;r.className=c;r.innerHTML=t;beep(f);if(navigator.vibrate)navigator.vibrate(c==='ok'?80:[80,60,80])}
+let resT;function res(t,c,f){const r=$('#res');r.hidden=false;r.className=c;r.innerHTML=t;beep(f);if(navigator.vibrate)navigator.vibrate(c==='ok'?80:[80,60,80]);clearTimeout(resT);resT=setTimeout(()=>{r.hidden=true},3500)}
 async function registrar(doc,m){const e=evSel();if(!e){res('Seleccione un evento.','bad',200);return}if(busy)return;busy=true;
  try{const r=await api('escanear',{ev:e.id,doc,m});
   if(r.dup)res(`Ya registrado<br>${esc(r.n)}<br><span class="small">a las ${r.hora} por ${esc(r.por)}</span>`,'dup',330);
-  else{res(`✔ ${esc(r.n)}<br><span class="small">${esc(r.r)}</span>`,'ok',880);lista()}}
+  else{res(`✔ REGISTRADO<br>${esc(r.n)}<br><span style="font-size:13px;font-weight:400">${esc(r.r)}</span>`,'ok',880);lista()}}
  catch(er){res(esc(er.message),'bad',200)}finally{busy=false}}
 $('#manBtn').onclick=()=>{const v=$('#man').value.trim();if(v){registrar(v,'manual');$('#man').value=''}};$('#man').onkeydown=e=>{if(e.key==='Enter')$('#manBtn').click()};
 
@@ -102,15 +102,17 @@ async function startCam(){
  catch(e){res('No se pudo abrir la cámara. Revise el permiso del navegador o use el ingreso manual.','bad',200)}}
 function stopCam(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}$('#cam').srcObject=null;$('#camBtn').textContent='Activar cámara';st('')}
 $('#camBtn').onclick=()=>stream?stopCam():startCam();
+let fr=0,lastSt=0,lastRead='';
 async function tick(){if(!stream)return;const v=$('#cam'),n=Date.now();
- if(v.readyState>=2&&v.videoWidth&&n-lastScan>150){lastScan=n;
+ if(v.readyState>=2&&v.videoWidth&&n-lastScan>150){lastScan=n;fr++;
   try{let txt=null;
    if(det){const r=await det.detect(v);if(r.length)txt=r[0].rawValue}
-   else{const c=$('#cv'),k=Math.min(1,960/v.videoWidth);c.width=Math.round(v.videoWidth*k);c.height=Math.round(v.videoHeight*k);
+   if(!txt&&typeof jsQR!=='undefined'){const c=$('#cv'),k=Math.min(1,960/v.videoWidth);c.width=Math.round(v.videoWidth*k);c.height=Math.round(v.videoHeight*k);
     const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(v,0,0,c.width,c.height);
     const q=jsQR(x.getImageData(0,0,c.width,c.height).data,c.width,c.height,{inversionAttempts:'dontInvert'});if(q)txt=q.data}
-   if(txt){const t=Date.now();if(txt!==last||t-lastT>4000){last=txt;lastT=t;registrar(txt,'cámara')}}}
-  catch(e){st('Error del lector: '+e.message)}}
+   if(txt){lastRead=txt;const t=Date.now();if(txt!==last||t-lastT>4000){last=txt;lastT=t;registrar(txt,'cámara')}}}
+  catch(e){st('Error del lector: '+e.message)}
+  if(n-lastSt>1000){lastSt=n;st('Lector: '+(det?'nativo + jsQR':'jsQR')+' · cuadros analizados: '+fr+' · último QR leído: '+(lastRead||'ninguno'))}}
  requestAnimationFrame(tick)}
 
 $('#ecr').onclick=async()=>{$('#eerr').textContent='';try{await api('crearEvento',{n:$('#en').value.trim(),j:$('#ej').value.trim(),ini:$('#ei').value,fin:$('#ef').value,reg:$('#er').value.trim()});['en','ej','ei','ef','er'].forEach(i=>$('#'+i).value='');load()}catch(e){$('#eerr').textContent=e.message}};
